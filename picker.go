@@ -7,12 +7,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	zone "github.com/lrstanley/bubblezone"
 	"github.com/muesli/reflow/wordwrap"
 	"golang.org/x/text/cases"
@@ -29,11 +32,13 @@ var (
 type recipe struct {
 	name        string
 	description string
+	similarity  int // For fuzzy sort
 }
 
 type model struct {
 	categories     []string
 	recipesByCat   map[string][]recipe
+	allRecipes     []recipe
 	currentTab     int
 	selectedRecipe int
 	showCode       bool
@@ -45,6 +50,10 @@ type model struct {
 	width          int
 	actualWidth    int
 	tooSmall       bool
+	showSearch     bool
+	textInput      textinput.Model
+	searchQuery    string
+	filteredRecipe []recipe
 }
 
 var runRecipe string
@@ -82,6 +91,7 @@ func initialModel() model {
 
 	categories := []string{}
 	recipesByCat := make(map[string][]recipe)
+	allRecipes := []recipe{}
 
 	recipeRegex := regexp.MustCompile(`^\s*([a-zA-Z0-9_-]+)\s*:\s*.*`)
 	commentRegex := regexp.MustCompile(`^\s*#\s*(.*)`)
@@ -117,6 +127,7 @@ func initialModel() model {
 					description: lastComment,
 				}
 				recipesByCat[category] = append(recipesByCat[category], recipe)
+				allRecipes = append(allRecipes, recipe)
 
 				lastComment = ""
 				found = true
@@ -128,17 +139,28 @@ func initialModel() model {
 	}
 
 	sort.Strings(categories)
+	sort.Slice(allRecipes, func(i, j int) bool {
+		return allRecipes[i].name < allRecipes[j].name
+	})
+
+	tuiWidth := 80
+	ti := textinput.New()
+	ti.Width = tuiWidth - 5 // -2 (border) + -2 (textinput padding) + -1 (textinput prompt)
 	return model{
 		categories:     categories,
 		recipesByCat:   recipesByCat,
+		allRecipes:     allRecipes,
 		currentTab:     0,
 		selectedRecipe: 0,
 		showCode:       false,
 		ready:          false,
 		height:         0,
-		width:          80,
+		width:          tuiWidth,
 		actualWidth:    0,
 		tooSmall:       false,
+		showSearch:     false,
+		textInput:      ti,
+		searchQuery:    "",
 	}
 }
 
@@ -176,6 +198,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 
+			if zone.Get("textInput").InBounds(msg) {
+				m.textInput.Focus()
+			} else {
+				m.textInput.Blur()
+			}
 			if zone.Get("leftTab").InBounds(msg) {
 				m.changeTab("left")
 			} else if zone.Get("rightTab").InBounds(msg) {
@@ -208,8 +235,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.runRecipe()
 		case "c":
+			if m.textInput.Focused() {
+				break
+			}
 			m.showCode = !m.showCode
+		case "s":
+			if m.textInput.Focused() {
+				break
+			}
+			m.selectedRecipe = 0
+			m.showSearch = !m.showSearch
+			if m.showSearch {
+				m.textInput.Focus()
+			} else {
+				m.textInput.Blur()
+			}
+			return m, nil
 		case "esc", "q", "ctrl+c":
+			if m.textInput.Focused() && msg.String() == "esc" {
+				m.textInput.Blur()
+				break
+			}
 			return m, tea.Quit
 		}
 		m.updateModel()
@@ -261,6 +307,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.codeViewport, cmd = m.codeViewport.Update(msg)
 		cmds = append(cmds, cmd)
 	}
+	if m.showSearch {
+		m.textInput, cmd = m.textInput.Update(msg)
+		cmds = append(cmds, cmd)
+		if m.searchQuery != m.textInput.Value() {
+			m.searchQuery = m.textInput.Value()
+			m.selectedRecipe = 0
+			m.updateFilteredRecipe()
+		}
+	}
 
 	return m, tea.Batch(cmds...)
 }
@@ -271,23 +326,31 @@ func (m model) headerView() string {
 	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2)) // -2 to account for border
 	header.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, "\n┌\n│", title, line, "\n┐\n│") + "\n")
 
-	left := ""
-	if m.currentTab > 0 {
-		left = m.categories[m.currentTab-1]
-	}
-	center := catSelected.Render(m.categories[m.currentTab])
-	right := ""
-	if m.currentTab < len(m.categories)-1 {
-		right = m.categories[m.currentTab+1]
+	if m.showSearch {
+		header.WriteString(zone.Mark("textInput", horizontalBorderStyle.Render(m.textInput.View())) + "\n")
+	} else {
+		left := ""
+		if m.currentTab > 0 {
+			left = m.categories[m.currentTab-1]
+		}
+		center := catSelected.Render(m.categories[m.currentTab])
+		right := ""
+		if m.currentTab < len(m.categories)-1 {
+			right = m.categories[m.currentTab+1]
+		}
+		leftSide := zone.Mark("leftTab", catArrow.Render("← ")+catSide.Render(left))
+		rightSide := zone.Mark("rightTab", catSide.Render(right)+catArrow.Render(" →"))
+		navLine := horizontalBorderStyle.Render(leftSide + catMiddle.Render(center) + rightSide)
+		header.WriteString(navLine + "\n")
 	}
 
-	leftSide := zone.Mark("leftTab", catArrow.Render("← ")+catSide.Render(left))
-	rightSide := zone.Mark("rightTab", catSide.Render(right)+catArrow.Render(" →"))
-	navLine := horizontalBorderStyle.Render(leftSide + catMiddle.Render(center) + rightSide)
-	header.WriteString(navLine + "\n")
 	header.WriteString(m.divider() + "\n")
 	topControlText := "← → Change Category | ↑ ↓ Navigate Recipes"
-	bottomControlText := "c: Toggle Code | Enter: Select | Esc: Exit"
+	bottomControlText := "s: Toggle Search | c: Toggle Code | Enter: Select | Esc: Exit"
+	if m.showSearch {
+		topControlText = "↑ ↓ Navigate Recipes"
+		bottomControlText = "s: Toggle Search | c: Toggle Code | Enter: Select | Esc: Unfocus Search"
+	}
 	// 2 (border) for total of 2, same for the function below
 	header.WriteString(controlStyle.Render(m.renderTextBlockCustom(topControlText, 2, lipgloss.Center)) + "\n")
 	header.WriteString(controlStyle.Render(m.renderTextBlockCustom(bottomControlText, 2, lipgloss.Center)) + "\n")
@@ -297,16 +360,17 @@ func (m model) headerView() string {
 
 func (m model) footerView() string {
 	var descBlock string
-	if len(m.currentRecipes()) > 0 {
-		r := m.currentRecipes()[m.selectedRecipe]
-		// 2 (border) + 2 (padding) for total of 4, same for two function below
-		selected := m.renderTextBlockCustom("Selected: "+selectedRecipe.Render(r.name), 4, lipgloss.Left)
-		desc := ""
-		if r.description != "" {
-			desc = m.renderTextBlockCustom(r.description, 4, lipgloss.Left)
-		}
-		descBlock = descText.Render(selected + "\n\n" + desc)
+	r := recipe{}
+	if len(m.currentRecipes()) > m.selectedRecipe {
+		r = m.currentRecipes()[m.selectedRecipe]
 	}
+	// 2 (border) + 2 (padding) for total of 4, same for two function below
+	selected := m.renderTextBlockCustom("Selected: "+selectedRecipe.Render(r.name), 4, lipgloss.Left)
+	desc := ""
+	if r.description != "" {
+		desc = m.renderTextBlockCustom(r.description, 4, lipgloss.Left)
+	}
+	descBlock = descText.Render(selected + "\n\n" + desc)
 	return m.divider() + "\n" + descBlock
 }
 
@@ -316,7 +380,11 @@ func (m model) codeHeaderView() string {
 	if !m.dualView {
 		backButton = zone.Mark("backButton", "← ")
 	}
-	title := titleStyle.Render(backButton + m.currentRecipes()[m.selectedRecipe].name)
+	name := ""
+	if len(m.currentRecipes()) > m.selectedRecipe {
+		name = m.currentRecipes()[m.selectedRecipe].name
+	}
+	title := titleStyle.Render(backButton + name)
 	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2)) // -2 to account for border
 	header.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, "\n┌\n│", title, line, "\n┐\n│"))
 	return header.String()
@@ -360,7 +428,28 @@ func (m model) View() string {
 }
 
 func (m model) currentRecipes() []recipe {
+	if m.showSearch {
+		if m.searchQuery == "" {
+			return m.allRecipes
+		}
+		return m.filteredRecipe
+	}
 	return m.recipesByCat[m.categories[m.currentTab]]
+}
+
+func (m *model) updateFilteredRecipe() {
+	filteredRecipe := []recipe{}
+	for _, r := range m.allRecipes {
+		rank := fuzzy.RankMatchFold(m.searchQuery, r.name)
+		if rank > -1 {
+			r.similarity = rank
+			filteredRecipe = append(filteredRecipe, r)
+		}
+	}
+	slices.SortFunc(filteredRecipe, func(i, j recipe) int {
+		return i.similarity - j.similarity
+	})
+	m.filteredRecipe = filteredRecipe
 }
 
 func wrap(s string, limit int) string {
@@ -439,6 +528,10 @@ func (m *model) scrollViewport() {
 
 func (m *model) fetchRecipeCode() {
 	if !m.showCode {
+		return
+	}
+
+	if len(m.currentRecipes()) <= m.selectedRecipe {
 		return
 	}
 
