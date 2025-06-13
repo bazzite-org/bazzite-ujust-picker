@@ -221,6 +221,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+		// Handle mouse movement in code viewport
+		if zone.Get("codeViewport").InBounds(msg) {
+			m.codeViewport, cmd = m.codeViewport.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
 		m.updateModel()
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -300,12 +307,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mainViewport.Height = mainViewportHeight
 			m.codeViewport.Height = codeViewportHeight
 		}
-	}
-
-	codeShowInSingleView := m.showCode && !m.dualView
-	if msg, ok := msg.(tea.MouseMsg); ok && (msg.X > 80 && msg.X < 160) || codeShowInSingleView { // Only send command in code view
-		m.codeViewport, cmd = m.codeViewport.Update(msg)
-		cmds = append(cmds, cmd)
 	}
 	if m.showSearch {
 		m.textInput, cmd = m.textInput.Update(msg)
