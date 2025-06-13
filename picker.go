@@ -242,12 +242,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.runRecipe()
 		case "c":
-			if m.textInput.Focused() {
+			if m.textInput.Focused() { // Don't trigger hotkey when textinput is focused
 				break
 			}
 			m.showCode = !m.showCode
 		case "s":
-			if m.textInput.Focused() {
+			if m.textInput.Focused() || (!m.dualView && m.showCode) { // Don't trigger hotkey when textinput is focused or when in background
 				break
 			}
 			m.selectedRecipe = 0
@@ -479,6 +479,9 @@ func wrap(s string, limit int) string {
 }
 
 func (m *model) changeTab(direction string) {
+	if !m.dualView && m.showCode { // Dont change tab when in background
+		return
+	}
 	if direction == "left" {
 		if m.currentTab > 0 {
 			m.currentTab--
@@ -492,6 +495,9 @@ func (m *model) changeTab(direction string) {
 	}
 }
 func (m *model) changeRecipeScroll(direction string) {
+	if !m.dualView && m.showCode { // Dont change recipe when in background
+		return
+	}
 	if direction == "up" {
 		if m.selectedRecipe > 0 {
 			m.selectedRecipe--
