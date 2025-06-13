@@ -61,9 +61,9 @@ var (
 		b.Left = "┤"
 		return lipgloss.NewStyle().Bold(true).Border(b).Inherit(bazziteWhite)
 	}()
-	catMiddle      = lipgloss.NewStyle().Align(lipgloss.Center).Width(28)
-	catSide        = lipgloss.NewStyle().Width(21).Inherit(catMiddle)
-	catArrow       = lipgloss.NewStyle().Width(4).Inherit(catMiddle)
+	catMiddle      = lipgloss.NewStyle().Align(lipgloss.Center).Width(28) // The category is 78 wide and divided to 28 in middle,
+	catSide        = lipgloss.NewStyle().Width(21).Inherit(catMiddle)     // 21 in each of the side,
+	catArrow       = lipgloss.NewStyle().Width(4).Inherit(catMiddle)      // and 4 for each arrow
 	catSelected    = lipgloss.NewStyle().Bold(true).Inherit(bazziteBlue).Underline(true)
 	selectedRecipe = lipgloss.NewStyle().Inherit(bazzitePurple).Bold(true)
 	recipeActive   = lipgloss.NewStyle().Inherit(selectedRecipe)
@@ -73,7 +73,7 @@ var (
 )
 
 func (m model) divider() string {
-	return "├" + strings.Repeat("─", m.width-2) + "┤"
+	return "├" + strings.Repeat("─", m.width-2) + "┤" // -2 to account for border
 }
 
 func initialModel() model {
@@ -275,7 +275,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) headerView() string {
 	var header strings.Builder
 	title := titleStyle.Render("Available ujust recipes")
-	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2))
+	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2)) // -2 to account for border
 	header.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, "\n┌\n│", title, line, "\n┐\n│") + "\n")
 
 	left := ""
@@ -293,6 +293,7 @@ func (m model) headerView() string {
 	header.WriteString(m.divider() + "\n")
 	topControlText := "← → Change Category | ↑ ↓ Navigate Recipes"
 	bottomControlText := "c: Toggle Code | Enter: Select | Esc: Exit"
+	// 2 (border) for total of 2, same for the function below
 	header.WriteString(controlStyle.Render(m.renderTextBlockCustom(topControlText, 2, lipgloss.Center)) + "\n")
 	header.WriteString(controlStyle.Render(m.renderTextBlockCustom(bottomControlText, 2, lipgloss.Center)) + "\n")
 	header.WriteString(m.divider())
@@ -303,6 +304,7 @@ func (m model) footerView() string {
 	var descBlock string
 	if len(m.currentRecipes()) > 0 {
 		r := m.currentRecipes()[m.selectedRecipe]
+		// 2 (border) + 2 (padding) for total of 4, same for two function below
 		selected := m.renderTextBlockCustom("Selected: "+selectedRecipe.Render(r.name), 4, lipgloss.Left)
 		desc := ""
 		if r.description != "" {
@@ -323,13 +325,14 @@ func (m model) codeHeaderView() string {
 		backButton = "← "
 	}
 	title := titleStyle.Render(backButton + m.currentRecipes()[m.selectedRecipe].name)
-	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2))
+	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2)) // -2 to account for border
 	header.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, "\n┌\n│", title, line, "\n┐\n│"))
 	return header.String()
 }
 
 func (m model) View() string {
 	if m.tooSmall {
+		// -2 to account for border
 		style := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Align(lipgloss.Center, lipgloss.Center).Height(m.height - 2).Width(min(m.actualWidth, m.width) - 2)
 		return style.Render("Your terminal size is too small.\nPlease resize the terminal window.")
 	}
