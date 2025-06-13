@@ -350,7 +350,9 @@ func (m model) headerView() string {
 	bottomControlText := "s: Toggle Search | c: Toggle Code | Enter: Select | Esc: Exit"
 	if m.showSearch {
 		topControlText = "↑ ↓ Navigate Recipes"
-		bottomControlText = "s: Toggle Search | c: Toggle Code | Enter: Select | Esc: Unfocus Search"
+		if m.textInput.Focused() {
+			bottomControlText = "s: Toggle Search | c: Toggle Code | Enter: Select | Esc: Unfocus Search"
+		}
 	}
 	// 2 (border) for total of 2, same for the function below
 	header.WriteString(controlStyle.Render(m.renderTextBlockCustom(topControlText, 2, lipgloss.Center)) + "\n")
