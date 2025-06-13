@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	zone "github.com/lrstanley/bubblezone"
 	"github.com/muesli/reflow/wordwrap"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -44,7 +45,6 @@ type model struct {
 	width          int
 	actualWidth    int
 	tooSmall       bool
-	debug          string
 }
 
 var runRecipe string
@@ -112,10 +112,12 @@ func initialModel() model {
 				if strings.HasPrefix(name, "_") || strings.Contains(line, "alias") || strings.Contains(line, "[private]") {
 					continue
 				}
-				recipesByCat[category] = append(recipesByCat[category], recipe{
+				recipe := recipe{
 					name:        name,
 					description: lastComment,
-				})
+				}
+				recipesByCat[category] = append(recipesByCat[category], recipe)
+
 				lastComment = ""
 				found = true
 			}
@@ -137,7 +139,6 @@ func initialModel() model {
 		width:          80,
 		actualWidth:    0,
 		tooSmall:       false,
-		debug:          "",
 	}
 }
 
@@ -163,41 +164,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			if msg.X < 80 {
-				if m.showCode && !m.dualView {
-					break // Dont scroll if single view and showing code
-				}
+			if zone.Get("mainViewport").InBounds(msg) {
 				m.changeRecipeScroll("up")
 			}
 		case tea.MouseButtonWheelDown:
-			if msg.X < 80 {
-				if m.showCode && !m.dualView {
-					break // Dont scroll if single view and showing code
-				}
+			if zone.Get("mainViewport").InBounds(msg) {
 				m.changeRecipeScroll("down")
 			}
 		case tea.MouseButtonLeft:
-			// m.debug = fmt.Sprintf("(X: %d, Y: %d) %s", msg.X, msg.Y, tea.MouseEvent(msg))
 			if msg.Action != tea.MouseActionRelease {
 				break
 			}
-			if msg.Y == 3 { // Tab Position
-				if msg.X <= 23 { // Left Tab Position
-					m.changeTab("left")
-				} else if msg.X >= 53 && msg.X <= 80 { // Right Tab Position
-					m.changeTab("right")
-				}
-			} else if msg.Y >= 8 && msg.X < 80 { // Recipe List Position
-				clickedRecipeIndex := msg.Y - 8 + m.mainViewport.YOffset
-				if clickedRecipeIndex == m.selectedRecipe {
-					return m.runRecipe()
-				}
-				if clickedRecipeIndex < len(m.currentRecipes()) {
-					m.selectedRecipe = clickedRecipeIndex
-				}
-			} else if m.showCode && !m.dualView {
-				if msg.X == 2 && msg.Y == 1 { // Back Button
-					m.showCode = false
+
+			if zone.Get("leftTab").InBounds(msg) {
+				m.changeTab("left")
+			} else if zone.Get("rightTab").InBounds(msg) {
+				m.changeTab("right")
+			} else if zone.Get("backButton").InBounds(msg) {
+				m.showCode = false
+			} else {
+				for i := range m.mainViewport.Height {
+					actualIndex := m.mainViewport.YOffset + i
+					if zone.Get("recipe" + fmt.Sprint(actualIndex)).InBounds(msg) {
+						if actualIndex == m.selectedRecipe {
+							return m.runRecipe()
+						}
+						m.selectedRecipe = actualIndex
+					}
 				}
 			}
 		}
@@ -288,7 +281,9 @@ func (m model) headerView() string {
 		right = m.categories[m.currentTab+1]
 	}
 
-	navLine := horizontalBorderStyle.Render(catArrow.Render("← ") + catSide.Render(left) + catMiddle.Render(center) + catSide.Render(right) + catArrow.Render(" →"))
+	leftSide := zone.Mark("leftTab", catArrow.Render("← ")+catSide.Render(left))
+	rightSide := zone.Mark("rightTab", catSide.Render(right)+catArrow.Render(" →"))
+	navLine := horizontalBorderStyle.Render(leftSide + catMiddle.Render(center) + rightSide)
 	header.WriteString(navLine + "\n")
 	header.WriteString(m.divider() + "\n")
 	topControlText := "← → Change Category | ↑ ↓ Navigate Recipes"
@@ -309,9 +304,6 @@ func (m model) footerView() string {
 		desc := ""
 		if r.description != "" {
 			desc = m.renderTextBlockCustom(r.description, 4, lipgloss.Left)
-			if m.debug != "" {
-				desc = m.renderTextBlockCustom(m.debug, 4, lipgloss.Left)
-			}
 		}
 		descBlock = descText.Render(selected + "\n\n" + desc)
 	}
@@ -322,7 +314,7 @@ func (m model) codeHeaderView() string {
 	var header strings.Builder
 	backButton := ""
 	if !m.dualView {
-		backButton = "← "
+		backButton = zone.Mark("backButton", "← ")
 	}
 	title := titleStyle.Render(backButton + m.currentRecipes()[m.selectedRecipe].name)
 	line := strings.Repeat("─", max(0, m.width-lipgloss.Width(title)-2)) // -2 to account for border
@@ -337,13 +329,14 @@ func (m model) View() string {
 		return style.Render("Your terminal size is too small.\nPlease resize the terminal window.")
 	}
 
+	recipeList := m.currentRecipes()
 	var recipeLines []string
-	for i, r := range m.currentRecipes() {
+	for i, r := range recipeList {
 		line := r.name
 		if i == m.selectedRecipe {
-			recipeLines = append(recipeLines, recipeActive.Render("▶ "+line))
+			recipeLines = append(recipeLines, zone.Mark("recipe"+fmt.Sprint(i), recipeActive.Render("▶ "+line)))
 		} else {
-			recipeLines = append(recipeLines, recipeInactive.Render("  "+line))
+			recipeLines = append(recipeLines, zone.Mark("recipe"+fmt.Sprint(i), recipeInactive.Render("  "+line)))
 		}
 	}
 	m.mainViewport.SetContent(strings.Join(recipeLines, "\n"))
@@ -352,16 +345,18 @@ func (m model) View() string {
 		return "\n  Initializing..."
 	}
 
-	mainView := fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.mainViewport.View(), m.footerView())
-	codeView := fmt.Sprintf("%s\n%s", m.codeHeaderView(), m.codeViewport.View())
+	mainView := fmt.Sprintf("%s\n%s\n%s", m.headerView(), zone.Mark("mainViewport", m.mainViewport.View()), m.footerView())
+	codeView := fmt.Sprintf("%s\n%s", m.codeHeaderView(), zone.Mark("codeViewport", m.codeViewport.View()))
+
+	finalView := mainView
 
 	if m.showCode && m.dualView {
-		return lipgloss.JoinHorizontal(lipgloss.Center, mainView, codeView)
+		finalView = lipgloss.JoinHorizontal(lipgloss.Center, mainView, codeView)
 	} else if m.showCode {
-		return codeView
+		finalView = codeView
 	}
 
-	return mainView
+	return zone.Scan(finalView)
 }
 
 func (m model) currentRecipes() []recipe {
@@ -470,6 +465,9 @@ func main() {
 		fmt.Printf("ujust-picker version %s, commit %s, built at %s\n", version, commit, date)
 		return
 	}
+
+	// Init bubblezone
+	zone.NewGlobal()
 
 	p := tea.NewProgram(
 		initialModel(),
