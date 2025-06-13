@@ -321,7 +321,7 @@ func (m model) footerView() string {
 func (m model) codeHeaderView() string {
 	var header strings.Builder
 	backButton := ""
-	if m.actualWidth < m.width*2 {
+	if !m.dualView {
 		backButton = "← "
 	}
 	title := titleStyle.Render(backButton + m.currentRecipes()[m.selectedRecipe].name)
@@ -355,7 +355,7 @@ func (m model) View() string {
 	mainView := fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.mainViewport.View(), m.footerView())
 	codeView := fmt.Sprintf("%s\n%s", m.codeHeaderView(), m.codeViewport.View())
 
-	if m.showCode && m.actualWidth >= m.width*2 {
+	if m.showCode && m.dualView {
 		return lipgloss.JoinHorizontal(lipgloss.Center, mainView, codeView)
 	} else if m.showCode {
 		return codeView
