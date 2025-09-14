@@ -540,7 +540,7 @@ func (m *model) fetchRecipeCode() {
 		return
 	}
 
-	if len(m.currentRecipes()) <= m.selectedRecipe {
+	if m.selectedRecipe >= len(m.currentRecipes()) || m.selectedRecipe < 0 {
 		return
 	}
 
