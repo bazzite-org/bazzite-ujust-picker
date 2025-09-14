@@ -85,22 +85,32 @@ func initialModel() model {
 
 	recipeRegex := regexp.MustCompile(`^\s*([a-zA-Z0-9_-]+)\s*:\s*.*`)
 	commentRegex := regexp.MustCompile(`^\s*#\s*(.*)`)
+	groupRegex := regexp.MustCompile(`^\s*\[group\(["']([^"']+)["']\)\]`)
 
 	for _, file := range files {
 		base := filepath.Base(file)
 		if strings.Contains(base, "picker") {
 			continue
 		}
-		category := cleanCategoryName(base)
 
 		f, _ := os.Open(file)
 		defer f.Close()
 
 		scanner := bufio.NewScanner(f)
 		var lastComment string
-		found := false
+		var currentGroup string = "General" // Default group for recipes without [group]
+		
 		for scanner.Scan() {
-			line := scanner.Text()
+			line := strings.TrimSpace(scanner.Text())
+			if groupMatches := groupRegex.FindStringSubmatch(line); groupMatches != nil {
+				currentGroup = strings.TrimSpace(groupMatches[1])
+				if currentGroup != "" {
+					currentGroup = cases.Title(language.English).String(currentGroup)
+				} else {
+					currentGroup = "General" // Fallback for empty group names
+				}
+				continue
+			}
 
 			if commentRegex.MatchString(line) {
 				lastComment = commentRegex.FindStringSubmatch(line)[1]
@@ -110,18 +120,30 @@ func initialModel() model {
 			if matches := recipeRegex.FindStringSubmatch(line); matches != nil {
 				name := matches[1]
 				if strings.HasPrefix(name, "_") || strings.Contains(line, "alias") || strings.Contains(line, "[private]") {
+					lastComment = ""
 					continue
 				}
-				recipesByCat[category] = append(recipesByCat[category], recipe{
+				
+				// Add recipe to its group
+				recipesByCat[currentGroup] = append(recipesByCat[currentGroup], recipe{
 					name:        name,
 					description: lastComment,
 				})
+				
+				// Add category to list if not already present
+				categoryExists := false
+				for _, cat := range categories {
+					if cat == currentGroup {
+						categoryExists = true
+						break
+					}
+				}
+				if !categoryExists {
+					categories = append(categories, currentGroup)
+				}
+				
 				lastComment = ""
-				found = true
 			}
-		}
-		if found {
-			categories = append(categories, category)
 		}
 	}
 
