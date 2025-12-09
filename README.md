@@ -9,7 +9,7 @@ A TUI application to browse and run ujust recipes in Bazzite.
 
 ### From Binary Release
 
-Download the latest release from the [releases page](https://github.com/xxjsonderuloxx/bazzite-ujust-picker/releases).
+Download the latest release from the [releases page](https://github.com/bazzite-org/bazzite-ujust-picker/releases).
 
 ```bash
 # Extract and install to /usr/local/bin
@@ -20,7 +20,7 @@ sudo tar -xzf ujust-picker_Linux_x86_64.tar.gz -C /usr/local/bin ujust-picker
 
 ```bash
 # Clone the repository
-git clone https://github.com/xxjsonderuloxx/bazzite-ujust-picker.git
+git clone https://github.com/bazzite-org/bazzite-ujust-picker.git
 cd bazzite-ujust-picker
 
 # Build and install
@@ -53,7 +53,7 @@ ujust-picker
 
 ```bash
 # Clone the repository
-git clone https://github.com/xxjsonderuloxx/bazzite-ujust-picker.git
+git clone https://github.com/bazzite-org/bazzite-ujust-picker.git
 cd bazzite-ujust-picker
 
 # Install dependencies
